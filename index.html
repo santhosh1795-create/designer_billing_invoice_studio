@@ -1182,12 +1182,7 @@
 
     /* ================= FIREBASE CLOUD CONFIGURATION ================= */
 
-    
-    // Import the functions you need from the SDKs you need
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
+  
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
@@ -1200,17 +1195,14 @@ const firebaseConfig = {
   measurementId: "G-YDBT90BP81"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-    /* ================= DEFAULT SEED DATA & STATE ================= */
+ /* ================= DEFAULT SEED DATA & STATE ================= */
     const DEFAULT_PROFILE = {
       name: "Santhosh Kolanji (Designer)",
       phone: "9566266036",
       email: "santhosh1795@gmail.com",
       address: "25 A Perumal Koil Street, Kallakurichi - 606202",
-      upi: "9566266036@upi",
-      bank: "State Bank of India | IFSC: SBIN0001234"
+      upi: "",
+      bank: ""
     };
 
     const DEFAULT_CLIENTS = [
