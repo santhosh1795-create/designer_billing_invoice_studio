@@ -83,15 +83,15 @@
 
       <form id="loginForm" class="space-y-4 text-left">
         <div>
-          <label class="block text-xs font-semibold text-slate-600 uppercase mb-1 tracking-wider" data-lang-en="Username" data-lang-ta="பயனர் பெயர்">Username</label>
-          <input type="text" id="loginUser" required value="designer" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-sm">
+          <label class="block text-xs font-semibold text-slate-600 uppercase mb-1 tracking-wider" data-lang-en="Email Address" data-lang-ta="மின்னஞ்சல்">Email Address</label>
+          <input type="email" id="loginUser" required value="santhosh1795@gmail.com" placeholder="santhosh1795@gmail.com" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-sm">
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-600 uppercase mb-1 tracking-wider" data-lang-en="PIN / Password" data-lang-ta="கடவுச்சொல் / பின்">PIN / Password</label>
-          <input type="password" id="loginPass" required value="1234" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-sm">
-          <p class="text-[11px] text-slate-400 mt-1.5" data-lang-en="Default: designer / 1234 (Offline storage)" data-lang-ta="இயல்பு: designer / 1234 (ஆஃப்லைன் சேமிப்பு)">Default: designer / 1234 (Offline storage)</p>
+          <label class="block text-xs font-semibold text-slate-600 uppercase mb-1 tracking-wider" data-lang-en="Password" data-lang-ta="கடவுச்சொல்">Password</label>
+          <input type="password" id="loginPass" required placeholder="Enter Firebase account password" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-sm">
+          <p class="text-[11px] text-slate-400 mt-1.5" data-lang-en="Secure Firebase Authentication (Multi-Tab Offline Enabled)" data-lang-ta="பாதுகாப்பான Firebase உள்நுழைவு (ஆஃப்லைன் வசதியுடன்)">Secure Firebase Authentication (Multi-Tab Offline Enabled)</p>
         </div>
-        <button type="submit" class="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-300 transition-all text-sm tracking-wide" data-lang-en="Unlock & Enter" data-lang-ta="உள்நுழையவும்">Unlock & Enter</button>
+        <button type="submit" id="loginSubmitBtn" class="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-300 transition-all text-sm tracking-wide" data-lang-en="Unlock & Enter" data-lang-ta="உள்நுழையவும்">Unlock & Enter</button>
       </form>
     </div>
   </div>
@@ -1177,8 +1177,8 @@
   <!-- Firebase SDK Imports (v11.6.1) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     /* ================= FIREBASE CLOUD CONFIGURATION ================= */
 
@@ -1198,10 +1198,16 @@ const firebaseConfig = {
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
-    const db = getFirestore(app);
+    // Multi-tab offline persistence enabled
+    const db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    });
     const appId = firebaseConfig.appId || "designer-billing-studio";
     let currentUser = null;
     let isCloudReady = false;
+    let unsubscribeListeners = [];
 
  /* ================= DEFAULT SEED DATA & STATE ================= */
     const DEFAULT_PROFILE = {
@@ -1285,31 +1291,25 @@ const firebaseConfig = {
     let incomeChartInstance = null;
 
     /* ================= FIRESTORE INITIALIZATION & REAL-TIME SYNC ================= */
-    async function initCloudSync() {
-      if (!auth || !db) return;
+    function initCloudSync() {
+      if (!auth || !db || !currentUser) return;
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-        currentUser = auth.currentUser;
-        if (!currentUser) return;
+        // Clear previous listeners if any
+        unsubscribeListeners.forEach(unsub => { try { unsub(); } catch(_) {} });
+        unsubscribeListeners = [];
 
         isCloudReady = true;
         const syncBadge = document.getElementById('cloudSyncStatus');
         if (syncBadge) syncBadge.classList.remove('hidden');
 
-        // Rule 1: Always use /artifacts/{appId}/public/data/{collectionName}
-        // Rule 2: Simple queries only, filter in JS
-        // Rule 3: Guard all queries with user check
+        // Path matches locked-down Firestore Rules
         const invColRef = collection(db, 'artifacts', appId, 'public', 'data', 'invoices');
         const cliColRef = collection(db, 'artifacts', appId, 'public', 'data', 'clients');
         const payColRef = collection(db, 'artifacts', appId, 'public', 'data', 'payments');
         const profDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'profile', 'designer');
 
         // Real-time listener for Invoices
-        onSnapshot(invColRef, (snapshot) => {
+        const unsubInvs = onSnapshot(invColRef, (snapshot) => {
           const cloudInvs = [];
           snapshot.forEach(d => cloudInvs.push(d.data()));
           if (cloudInvs.length > 0 || localStorage.getItem('sk_cloud_seeded') === 'true') {
@@ -1320,9 +1320,10 @@ const firebaseConfig = {
             renderInvoicesList();
           }
         }, (err) => console.warn('Invoices sync notice:', err));
+        unsubscribeListeners.push(unsubInvs);
 
         // Real-time listener for Clients
-        onSnapshot(cliColRef, (snapshot) => {
+        const unsubClients = onSnapshot(cliColRef, (snapshot) => {
           const cloudClients = [];
           snapshot.forEach(d => cloudClients.push(d.data()));
           if (cloudClients.length > 0 || localStorage.getItem('sk_cloud_seeded') === 'true') {
@@ -1331,9 +1332,10 @@ const firebaseConfig = {
             renderClientsGrid();
           }
         }, (err) => console.warn('Clients sync notice:', err));
+        unsubscribeListeners.push(unsubClients);
 
         // Real-time listener for Payments
-        onSnapshot(payColRef, (snapshot) => {
+        const unsubPays = onSnapshot(payColRef, (snapshot) => {
           const cloudPays = [];
           snapshot.forEach(d => cloudPays.push(d.data()));
           if (cloudPays.length > 0 || localStorage.getItem('sk_cloud_seeded') === 'true') {
@@ -1344,18 +1346,20 @@ const firebaseConfig = {
             renderDashboard();
           }
         }, (err) => console.warn('Payments sync notice:', err));
+        unsubscribeListeners.push(unsubPays);
 
         // Real-time listener for Profile
-        onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'profile', 'designer'), (snap) => {
+        const unsubProf = onSnapshot(profDocRef, (snap) => {
           if (snap.exists()) {
             profile = snap.data();
             localStorage.setItem('sk_profile', JSON.stringify(profile));
             populateProfileInputs();
           }
         }, (err) => console.warn('Profile sync notice:', err));
+        unsubscribeListeners.push(unsubProf);
 
       } catch (err) {
-        console.warn('Firebase Auth/Sync notice:', err);
+        console.warn('Firebase Sync notice:', err);
       }
     }
 
@@ -1382,7 +1386,6 @@ const firebaseConfig = {
 
     /* ================= INITIALIZATION ================= */
     window.addEventListener('DOMContentLoaded', () => {
-      checkAuthStatus();
       applyLanguage(currentLanguage);
       populateProfileInputs();
       initBillFormDefaults();
@@ -1390,39 +1393,63 @@ const firebaseConfig = {
       renderInvoicesList();
       renderClientsGrid();
       renderIncomeLedger();
-      initCloudSync();
     });
 
-    /* ================= AUTHENTICATION LOGIC ================= */
-    function checkAuthStatus() {
-      const logged = localStorage.getItem('sk_logged_in');
+    /* ================= AUTHENTICATION LOGIC (EMAIL & PASSWORD) ================= */
+    onAuthStateChanged(auth, (user) => {
       const loginOverlay = document.getElementById('loginScreen');
-      if (logged === 'true') {
+      const syncBadge = document.getElementById('cloudSyncStatus');
+      if (user) {
+        currentUser = user;
         loginOverlay.classList.add('hidden');
+        initCloudSync();
       } else {
+        currentUser = null;
+        isCloudReady = false;
+        if (syncBadge) syncBadge.classList.add('hidden');
         loginOverlay.classList.remove('hidden');
       }
-    }
+    });
 
-    document.getElementById('loginForm').addEventListener('submit', (e) => {
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const u = document.getElementById('loginUser').value.trim();
-      const p = document.getElementById('loginPass').value.trim();
+      const email = document.getElementById('loginUser').value.trim();
+      const pass = document.getElementById('loginPass').value.trim();
+      const submitBtn = document.getElementById('loginSubmitBtn');
       
-      if (u === 'designer' && p === '1234') {
-        localStorage.setItem('sk_logged_in', 'true');
-        document.getElementById('loginScreen').classList.add('hidden');
-        showToast("Welcome back, Santhosh! Logged in successfully.", "🔓");
-      } else {
-        showToast("Invalid credentials! Default: designer / 1234", "⚠️");
+      const originalText = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Verifying...";
+
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        showToast("Signed in securely!", "🔓");
+      } catch (err) {
+        console.error("Auth error:", err);
+        let errorMsg = "Login failed: Please check email and password.";
+        if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+          errorMsg = "Incorrect email or password!";
+        } else if (err.code === 'auth/user-not-found') {
+          errorMsg = "User not found in Firebase. Please add user in Firebase Console.";
+        } else if (err.code === 'auth/too-many-requests') {
+          errorMsg = "Too many attempts. Please wait a few moments.";
+        }
+        showToast(errorMsg, "⚠️");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
       }
     });
 
-    function logout() {
-      // Replaced window.confirm with accessible in-app check
-      localStorage.removeItem('sk_logged_in');
-      document.getElementById('loginScreen').classList.remove('hidden');
-      showToast("Signed out", "🔒");
+    async function logout() {
+      try {
+        await signOut(auth);
+        unsubscribeListeners.forEach(unsub => { try { unsub(); } catch(_) {} });
+        unsubscribeListeners = [];
+        showToast("Signed out successfully", "🔒");
+      } catch (err) {
+        console.warn("Logout error:", err);
+      }
     }
 
     /* ================= LANGUAGE TOGGLE (TAMIL & ENGLISH) ================= */
