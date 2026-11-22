@@ -1196,6 +1196,13 @@ const firebaseConfig = {
   measurementId: "G-YDBT90BP81"
 };
 
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = firebaseConfig.appId || "designer-billing-studio";
+    let currentUser = null;
+    let isCloudReady = false;
+
  /* ================= DEFAULT SEED DATA & STATE ================= */
     const DEFAULT_PROFILE = {
      
@@ -1303,10 +1310,9 @@ const firebaseConfig = {
 
         // Real-time listener for Invoices
         onSnapshot(invColRef, (snapshot) => {
-          if (!snapshot.empty) {
-            const cloudInvs = [];
-            snapshot.forEach(d => cloudInvs.push(d.data()));
-            // Sort in memory by date descending
+          const cloudInvs = [];
+          snapshot.forEach(d => cloudInvs.push(d.data()));
+          if (cloudInvs.length > 0 || localStorage.getItem('sk_cloud_seeded') === 'true') {
             cloudInvs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
             invoices = cloudInvs;
             localStorage.setItem('sk_invoices', JSON.stringify(invoices));
@@ -1317,9 +1323,9 @@ const firebaseConfig = {
 
         // Real-time listener for Clients
         onSnapshot(cliColRef, (snapshot) => {
-          if (!snapshot.empty) {
-            const cloudClients = [];
-            snapshot.forEach(d => cloudClients.push(d.data()));
+          const cloudClients = [];
+          snapshot.forEach(d => cloudClients.push(d.data()));
+          if (cloudClients.length > 0 || localStorage.getItem('sk_cloud_seeded') === 'true') {
             clients = cloudClients;
             localStorage.setItem('sk_clients', JSON.stringify(clients));
             renderClientsGrid();
@@ -1328,9 +1334,9 @@ const firebaseConfig = {
 
         // Real-time listener for Payments
         onSnapshot(payColRef, (snapshot) => {
-          if (!snapshot.empty) {
-            const cloudPays = [];
-            snapshot.forEach(d => cloudPays.push(d.data()));
+          const cloudPays = [];
+          snapshot.forEach(d => cloudPays.push(d.data()));
+          if (cloudPays.length > 0 || localStorage.getItem('sk_cloud_seeded') === 'true') {
             cloudPays.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
             paymentLedger = cloudPays;
             localStorage.setItem('sk_payment_ledger', JSON.stringify(paymentLedger));
@@ -1356,6 +1362,7 @@ const firebaseConfig = {
     async function syncDocToFirestore(colName, docId, data) {
       if (!isCloudReady || !db || !currentUser) return;
       try {
+        localStorage.setItem('sk_cloud_seeded', 'true');
         const dRef = doc(db, 'artifacts', appId, 'public', 'data', colName, docId);
         await setDoc(dRef, data);
       } catch (e) {
@@ -2575,7 +2582,12 @@ const firebaseConfig = {
       }
 
       filtered.forEach(inv => {
-        const isSettled = (inv.balance <= 0);
+        const linkedLedgerPaid = paymentLedger
+          .filter(p => p.billNo === inv.billNo)
+          .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        const effectivePaid = (Number(inv.paid) || 0) + linkedLedgerPaid;
+        const effectiveBalance = Math.max(0, (Number(inv.subtotal) || 0) - effectivePaid);
+        const isSettled = (effectiveBalance <= 0);
         const tr = document.createElement('tr');
         tr.className = "hover:bg-slate-50 transition border-b border-slate-100";
         tr.innerHTML = `
@@ -2591,8 +2603,8 @@ const firebaseConfig = {
             </span>
           </td>
           <td class="py-3 px-4 text-right font-mono font-bold">₹${Number(inv.subtotal).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-          <td class="py-3 px-4 text-right font-mono font-bold text-emerald-600">₹${Number(inv.paid).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-          <td class="py-3 px-4 text-right font-mono font-bold text-rose-600">₹${Number(inv.balance).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+          <td class="py-3 px-4 text-right font-mono font-bold text-emerald-600">₹${Number(effectivePaid).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+          <td class="py-3 px-4 text-right font-mono font-bold text-rose-600">₹${Number(effectiveBalance).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
           <td class="py-3 px-4 text-center">
             <span class="px-2 py-1 rounded-full text-[10px] font-extrabold ${isSettled ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">
               ${isSettled ? 'PAID' : 'DUE / CREDIT'}
@@ -2621,9 +2633,7 @@ const firebaseConfig = {
       }
 
       clients.forEach(c => {
-        const clientDues = invoices
-          .filter(i => i.client?.name?.toLowerCase() === c.name.toLowerCase())
-          .reduce((sum, curr) => sum + (Number(curr.balance) || 0), 0);
+        const clientDues = getClientFinancialSummary(c.name).netPending;
 
         const card = document.createElement('div');
         card.className = "bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between";
