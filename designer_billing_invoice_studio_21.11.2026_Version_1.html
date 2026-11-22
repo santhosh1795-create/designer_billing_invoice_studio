@@ -1181,32 +1181,29 @@
     import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     /* ================= FIREBASE CLOUD CONFIGURATION ================= */
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'designer-billing-studio';
-    const firebaseConfig = typeof __firebase_config !== 'undefined' 
-      ? JSON.parse(__firebase_config) 
-      : {
-          apiKey: "demo-api-key",
-          authDomain: "demo-billing.firebaseapp.com",
-          projectId: "demo-billing",
-          storageBucket: "demo-billing.appspot.com",
-          messagingSenderId: "123456789",
-          appId: "1:123456789:web:abcdef"
-        };
 
-    let app = null;
-    let auth = null;
-    let db = null;
-    let currentUser = null;
-    let isCloudReady = false;
+    
+    // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
-    try {
-      app = initializeApp(firebaseConfig);
-      auth = getAuth(app);
-      db = getFirestore(app);
-    } catch (err) {
-      console.warn("Firestore initialization notice (will run in dual offline/cloud mode):", err);
-    }
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDiprmT7-DtuEr1MGZdup13P-TFXlB7qP8",
+  authDomain: "designer-billing-studio.firebaseapp.com",
+  projectId: "designer-billing-studio",
+  storageBucket: "designer-billing-studio.firebasestorage.app",
+  messagingSenderId: "230965495385",
+  appId: "1:230965495385:web:cf653c581ff69347275348",
+  measurementId: "G-YDBT90BP81"
+};
 
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
     /* ================= DEFAULT SEED DATA & STATE ================= */
     const DEFAULT_PROFILE = {
       name: "Santhosh Kolanji (Designer)",
